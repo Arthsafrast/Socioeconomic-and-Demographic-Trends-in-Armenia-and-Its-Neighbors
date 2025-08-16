@@ -1,0 +1,812 @@
+---
+title: "Exploring Socioeconomic and Demographic Trends in Armenia and Its Neighbors"
+subtitle: "Data Visualization – Summer 2025 Project"
+author: 
+  - Artur Safrastyan
+date: "04/08/2025"
+output:
+  pdf_document: default
+editor_options: 
+  markdown: 
+    wrap: 72
+documentclass: article
+geometry: margin=1in
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(ggplot2)
+library(ggExtra)
+library(reshape2)
+library(GGally)
+library(tidyr)
+library(dplyr)
+library(tidyverse)
+library(forecast)
+library(knitr)
+library(ggplot2)
+library(ggfortify)
+library(dplyr)
+library(fpp2)
+library(shiny)
+library(ggplot2)
+library(DT)
+```
+
+```{r df, echo=FALSE}
+df <- read.csv("data_r.csv")
+```
+
+```{r, echo=FALSE}
+
+df_long_numeric <- df %>%
+  select(year, where(is.numeric)) %>%
+  pivot_longer(
+    cols = -year,
+    names_to = c("variable", "country"),
+    names_pattern = "^(.*)_(arm|az|ge|est)$",
+    values_to = "value"
+  ) %>%
+  pivot_wider(
+    names_from = "variable",
+    values_from = "value"
+  )
+
+df_long_events <- df %>%
+  select(year, starts_with("notable_event")) %>%
+  pivot_longer(
+    cols = -year,
+    names_to = "country",
+    names_pattern = "^notable_event_(.*)$",
+    values_to = "notable_event"
+  )
+df_long_categorical <- df %>%
+  select(year, era,
+         matches("^women_polit_participation_index_"),
+         matches("^regime_type_")) %>%
+  pivot_longer(
+    cols = -c(year, era),
+    names_to = c("variable", "country"),
+    names_pattern = "^(.*)_(arm|az|ge|est)$",
+    values_to = "cat_value"
+  ) %>%
+  pivot_wider(
+    names_from = "variable",
+    values_from = "cat_value"
+  )
+df_combined <- df_long_numeric %>%
+  left_join(df_long_events, by = c("year", "country")) %>%
+  left_join(df_long_categorical, by = c("year", "country"))
+df_combined <- df_combined %>%
+  mutate(country_full = recode(country,
+                               "arm" = "Armenia",
+                               "az"  = "Azerbaijan",
+                               "ge"  = "Georgia",
+                               "est" = "Estonia"))
+```
+
+## **Overview**
+
+This report explores long-term socio-demographic, political, and public
+health trends in Armenia and selected post-Soviet states from 1958 to
+2022, with a focus on population, life expectancy, corruption,
+urbanization, and gender-related indicators. It examines how Armenia,
+despite facing war, blockade, and isolation, demonstrates demographic
+resilience unusual for a state under chronic geopolitical stress. By
+leveraging multiple datasets, the project contextualizes visual patterns
+within broader political, historical, and economic frameworks. The
+report aims to assess how well traditional metrics like birth rate, life
+expectancy, and corruption indices capture the lived effects of regime
+change, disaster, and modernization in Armenia.
+
+Before delving into empirical findings, it is essential to understand
+the structure and origin of the data used in this analysis. The dataset,
+compiled from multiple international indicators, serves as the
+foundation for evaluating Armenia’s long-term development trajectory.
+
+## **Data description**
+
+The dataset used in this project was manually compiled from multiple
+sources hosted on the [Our World in
+Data](https://ourworldindata.org/country/armenia) platform. It includes
+annual time-series data for Armenia and several post-Soviet states
+(e.g., Georgia, Azerbaijan, Estonia) from 1958 to 2022. Variables
+encompass a wide range of demographic, socio-political, and economic
+indicators such as:
+
+-   Life Expectancy (total, male, female)
+
+-   Birth and Death Rates
+
+-   Child Mortality Rates
+
+-   Sex Ratio at Birth
+
+-   Urban Population Percentage Population
+
+-   Totals Democracy and Corruption Indices
+
+-   Regime Type
+
+-   Notable Historical Events (coded manually)
+
+Data was collected from over a dozen downloadable tables and merged
+manually.
+
+## **Literature review**
+
+Numerous studies address the "transition crisis" in former Soviet
+states, especially its impact on mortality, fertility, and governance.
+Notably, Cornia and Paniccià (2000) describe the post-Soviet health
+collapse as a result of rapid privatization and institutional voids.
+Regarding corruption, Ledeneva (2006) explores the persistence of "blat"
+(informal networks) in post-Soviet systems, complicating transparency
+reforms. In terms of gender bias, Guilmoto (2009) , UNFPA Armenia (2013)
+and Cambridge (2024) have reported Armenia’s skewed sex ratios and
+cultural-son preferences. On urbanization reversals, Buckley and
+Tsenkova (2001) note that post-socialist housing markets contributed to
+unique migration trends not seen in Global North urbanism. Armenia’s
+resilience, therefore, challenges conventional wisdom on the uniformity
+of post-Soviet decline.
+
+## Plots and Analysis
+
+We begin our analysis by examining life expectancy trends. This
+indicator reflects both health infrastructure and broader social
+conditions, making it a valuable proxy for assessing national resilience
+
+```{r, echo=FALSE}
+df_combined <- df_combined %>%
+  mutate(notable_event = case_when(
+    country == "est" & year == 2004 ~ "eu_member",
+    TRUE ~ notable_event
+  ))
+
+event_labels <- df_combined %>%
+  filter(
+    (country == "arm" & notable_event %in% c("karabakh_war1", "spitak_earth", "karabakh_war2")) |
+    (country == "az"  & notable_event %in% c("karabakh_war1", "karabakh_war2")) |
+    (country == "ge"  & notable_event == "civil_war/wars") |
+    (country == "est" & notable_event == "eu_member")
+  ) %>%
+  distinct(year, total_life_expect, country_full, notable_event) %>%
+  mutate(
+    notable_event = recode(notable_event,
+      "spitak_earth"     = "Spitak Earthquake", 
+      "karabakh_war1"    = "End of The First\n Karabakh War", 
+      "karabakh_war2"    = "Karabakh War II", 
+      "civil_war/wars"   = "Georgian Civil War",
+      "eu_member"        = "EU Membership"
+    ),
+    notable_event = factor(notable_event, levels = c(
+      "Spitak Earthquake", 
+      "End of The First\n Karabakh War", 
+      "Karabakh War II", 
+      "Georgian Civil War",
+      "EU Membership"
+    ))
+  )
+
+ggplot(df_combined, aes(year, total_life_expect, group = country)) +
+  geom_vline(xintercept = 1991, linetype = "dashed", color = "seagreen") +
+  annotate("text", x = 1991, 
+           y = min(df_combined$total_life_expect, na.rm = TRUE) * 1.05, 
+           label = "USSR collapse", vjust = 0.2, hjust = -0.04, size = 2.6, color = "seagreen") +
+
+  geom_line(linewidth = 0.6) +
+
+  geom_point(data = event_labels,
+             aes(x = year, y = total_life_expect, color = notable_event),
+             size = 2.5, inherit.aes = FALSE) +
+
+  facet_wrap(~country_full) +
+  labs(
+  title = "Figure 1: Life Expectancy each year (1958–2022)",
+  x = "Year",
+  y = "Life Expectancy",
+  color = "Notable Event"
+) +
+  theme_bw()
+
+
+```
+
+*Notable events shown include armed conflicts, political milestones, and
+natural disasters. For a full list with casualty estimates and
+references, see Appendix B.*
+
+*To see a definition of Life Expectancy, see Appendix A.*
+
+The above plot reveals life expectancy trends in four post-Soviet
+republics-Armenia, Azerbaijan, Georgia, and Estonia—annotated with major
+historical disruptions. All four countries exhibit a visible stagnation
+or decline in life expectancy in the early 1990s, immediately following
+the USSR’s dissolution in 1991. This decline, particularly sharp in
+Armenia, Georgia, and Azerbaijan, aligns with what some economists and
+demographers term the “transition crisis”—a collapse of public
+institutions, health systems, and economic stability following the shift
+to market economies. Estonia, in contrast, exhibits only a minor dip in
+life expectancy. Estonia swiftly oriented itself toward EU integration,
+adopting rapid liberalization and receiving Western institutional
+support, culminating in EU accession in 2004, which is annotated on the
+graph. Estonia's life expectancy trends suggest that Western
+institutional alignment (gaining EU membership) had measurable impacts
+on public health.\
+Armed conflicts of the early 90s have had a major impact on the 3
+countries of the Caucasus. The least impacted was Armenia with only a
+minor dip and/or stagnation of life expectancy, in contrast, the same
+war (the first Karabakh war) had a much stronger effect on Azerbaijan.
+Georgia shows a prolonged stagnation in the 1990s, worse than Armenia or
+Azerbaijan. The Georgian Civil War (1991–1993), along with conflicts in
+Abkhazia and South Ossetia, and state collapse under Shevardnadze, led
+to a near-total breakdown in social services.\
+The most devastating occurrence in Armenia was the Spitak earthquake
+which caused major death and destruction, but the sharp recovery the
+following years shows that despite the scale of the tragedy, public
+resilience and Soviet-era disaster response structures were temporarily
+effective.\
+Important to highlight the resilience of Armenia’s life expectancy as a
+striking anomaly, especially when benchmarked against regional peers
+like Georgia and even more developed post-Soviet states like Estonia.
+This pattern defies expectations based on conventional demographic
+predictors—armed conflict, economic blockade, and isolation typically
+drive life expectancy downward. Yet Armenia exhibits a steady upward
+trajectory, interrupted only by truly catastrophic events (Spitak
+Earthquake in 1988 and Second Karabakh War in 2020).\
+Some suggestions are listed below
+
+-   Armenia inherited a high literacy rate, strong medical education,
+    and preventive healthcare infrastructure from the USSR. Even though
+    economic collapse degraded much of this, the cultural and
+    institutional remnants persisted Armenia maintained universal basic
+    education, widespread vaccination coverage, strong maternal and
+    infant care culture.
+
+-   Armenia benefits enormously from its global diaspora, which sends
+    aid (up to 13% of GDP in some years), funds local clinics,
+    hospitals, and medical aid, enables medical tourism. Diaspora aid
+    partially offsets the blockade.
+
+-   Armenians place high cultural value on education and family, which
+    correlates with better maternal-child health, lower alcohol abuse,
+    robust elderly care within extended families. There is evidence from
+    global health that strong family systems mitigate the worst effects
+    of poverty on life expectancy.
+
+Armenia is one of the rare cases where war, blockade, and geopolitical
+isolation have not translated into demographic collapse.\
+
+The below plot shows the population change of 4 former Soviet countries
+from 1958 to 2022.
+
+**Armenia's Population Change:** Armenia's population peaked at nearly
+3.7 million in the late 1980s but has declined sharply since
+independence in 1991, to just over 3 million in 2021, largely as a
+result of its decreasing fertility rate and negative net emigration
+rate. The decline was driven by multiple factors: Many Armenian
+emigrants in the early 1990s were people who had lost jobs after the
+severe 1988 Spitak earthquake, refugees and people fleeing the economic
+and energy crises of 1992-95. Almost half a million people left the
+country during this period, and approximately 100,000 persons or 3
+percent of the country's population, emigrated during the beginning of
+1990s due to political internal and external instability. The continued
+stagnation reflects ongoing emigration of working-age adults and
+persistently low birth rates (shown later on).
+
+```{r, fig.width=6, fig.height=4, fig.align = "center", echo = FALSE}
+event_labels2 <- df_combined %>%
+  filter(
+    (country == "arm" & notable_event %in% c( "karabakh_war1")) |
+    (country == "az"  & notable_event == "karabakh_war1") |
+    (country == "ge"  & notable_event =="civil_war/wars")) %>%
+  distinct(year, population, total_life_expect, country_full, notable_event) %>%
+  mutate(
+    population_millions = population / 1e6,
+    notable_event = recode(notable_event,
+      
+      "karabakh_war1"   = "End of First \
+      Karabakh War",
+      "civil_war/wars"  = "Start of\
+      Civil War",
+      "russo_geo_war"   = "Russian Georgian War"
+    )
+  )
+
+
+ggplot(df_combined, aes(year, population/1000000, group = country)) +
+  geom_line(linewidth = 0.6) +
+  facet_wrap(~country_full, scales = "free_y") +
+
+  geom_vline(xintercept = 1991, linetype = "dashed", color = "red") +
+  annotate("text", x = 1991, 
+         y = min(df_combined$population, na.rm = TRUE) / 1e6 * 1.05, 
+         label = "USSR collapse", angle = 0, vjust = 0.5, hjust = -0.04, size = 2.6) +
+geom_point(data = event_labels2, 
+           aes(x = year, y = population/1000000), 
+           color = "blue", size = 2.5, shape = 18, inherit.aes = FALSE) +
+  geom_text(data = event_labels2,
+          aes(x = year,
+              y = population/1000000,
+              label = notable_event),
+          size = 2.5, vjust = 2.1, hjust = 0.3, color = "blue", inherit.aes = FALSE) +
+
+  labs(title = "Figure 2: Population by  year (1958-2022)",
+       x = "Year", y = "Population in millions") +
+  theme_bw()
+```
+
+**Azerbaijan's Population Change**: Azerbaijan's population growth
+continued despite conflicts, likely because internal displacement from
+Karabakh was absorbed within Azerbaijan's borders. Regarding population
+counting, international organizations typically count territories based
+on internationally recognized borders, so Karabakh's population would be
+included in Azerbaijan's official statistics. Also, important to mention
+the fact that Azerbaijan has limited and unreliable population
+statistics due to media freedom being severely curtailed and official
+numbers have been put under scrutiny, often being labeled as an
+overestimation.
+
+**Georgia's Population Change**: From 1992 the population began to
+decline sharply due to civil war and economic crisis driven mass
+migration throughout the 1990s and into the early 2000s, and Georgia
+lost more than one million people or almost 20 per cent of its
+population between independence and 2002. The emigration of ethnic
+minorities has also left an impact. The number of Russians living in
+Georgia has dropped significantly over the past 20 years. The 2002
+census recorded nearly 68,000 ethnic Russians living in Georgia, a
+figure that at the time constituted about 1.5 percent of the total
+population. That total marked a steep decline from the 341,000 Russians
+(6.3 percent of the population) counted in 1989. Like Armenia Georgia's
+population has stagnated over the past decade.
+
+**Estonia's Population Change**: Following independence, immigration
+slowed greatly, and many Russians left the country, with a net
+population loss of about 90,000 between 1989 and 1994, but the outflow
+slowed in the late 1990s. Estonia also has a very low birth rate, a
+problem crippling most EU members.
+
+The below plot shows the difference between the sexes in Armenia from
+1958-2022.
+
+```{r, fig.width=5, fig.height=3, fig.align = "center", echo = FALSE}
+library(dplyr)
+library(ggplot2)
+
+
+event_lines <- df %>%
+  filter(notable_event_arm %in% c("spitak_earth", "karabakh_war2")) %>%
+  distinct(year, notable_event_arm) %>%
+  mutate(label = recode(notable_event_arm,
+                        "spitak_earth" = "Spitak Earthquake",
+                        "karabakh_war2" = "Karabakh War II"))
+
+
+ggplot(df, aes(x = year)) +
+  geom_vline(data = event_lines, aes(xintercept = year),
+             linetype = "dashed", color = "seagreen4", linewidth = 0.5) +
+  geom_vline(xintercept = 1991, linetype = "dashed", color = "purple") +
+
+  geom_point(aes(y = male_life_expect_arm, color = "Male"),size=2) +
+  geom_point(aes(y = female_life_expect_arm, color = "Female"),size=2) +
+  
+  
+
+
+  annotate("text", x = 1991, 
+           y = min(df_combined$male_life_expect, na.rm = TRUE) * 1.05, 
+           label = "Spitak Earthquake", angle = 0, vjust = 0.2, hjust = 1.3, size = 2.3, colour = "seagreen") +
+  annotate("text", x = 2020, 
+           y = min(df_combined$male_life_expect, na.rm = TRUE) * 1.05, 
+           label = "Karabakh War II", angle = 0, vjust = 0.2, hjust = 1.1, size = 2.3, colour = "seagreen")+
+  annotate("text", x = 1991, 
+           y = min(df_combined$total_life_expect, na.rm = TRUE) * 1.05, 
+           label = "USSR collapse", angle = 0, vjust = 0.2, hjust = -0.04, size = 3,colour = "purple")+
+
+  scale_color_manual(values = c("Male" = "steelblue2", "Female" = "red")) +
+
+  labs(
+    title = "Figure 3: Life Expectancy in Armenia by Gender (1958-2022)",
+    x = "Year",
+    y = "Life Expectancy",
+    color = "Gender"
+  ) +
+  theme_bw() +
+  theme(
+    legend.title = element_text(size = 9),
+    legend.text = element_text(size = 8),
+    plot.title = element_text(size=11)
+  )
+
+
+```
+
+This gender-disaggregated data reveals nuances about how the Soviet
+collapse differently impacted men and women in Armenia. The most
+striking pattern is the stark divergence in recovery trajectories: while
+female life expectancy maintained its steady upward trajectory with only
+minor disruption around 1991, male life expectancy experienced a much
+more severe and prolonged crisis. The gender gap in life expectancy
+widened dramatically from about 7-8 years in the Soviet era to nearly 10
+years by the early 2000s. This reflects the classic post-Soviet male
+mortality crisis, though life expectancy declined dramatically in the
+first half of the 1990s, particularly for males across the former USSR.
+However, Armenia's pattern is notable because adult mortality patterns
+in Armenia have been more favorable than in Russia, due to a large
+extent to lower mortality from alcohol-related causes. The most
+interesting aspect is the recent convergence trend, while male life
+expectancy has recovered significantly since the early 2000s (except for
+the 2020 war), female life expectancy has actually plateaued or slightly
+declined in recent years, most likely due to the coronavirus pandemic.
+This suggests that Armenia may have had improvements in male-specific
+mortality causes (possibly violence, accidents, or cardiovascular
+disease).
+
+Urbanization reflects long-term economic and demographic shifts. In the
+post-Soviet space, urban population percentages reveal both internal
+migration patterns and the legacy of centrally planned development.
+
+```{r, fig.width=6, fig.height=3, fig.align = "center",echo = FALSE}
+df_long <- df %>%
+  select(era, urban_population_perc_arm, urban_population_perc_az, urban_population_perc_ge) %>%
+  pivot_longer(cols = starts_with("urban_population_perc_"),
+               names_to = "country",
+               names_prefix = "urban_population_perc_",
+               values_to = "urban_pop")
+
+df_long$era <- recode(df_long$era,
+                      "post_soviet" = "Post Soviet",
+                      "soviet" = "Soviet")
+
+df_long$era <- factor(df_long$era, levels = c("Soviet", "Post Soviet"))
+
+ggplot(df_long, aes(x = era, y = urban_pop)) +
+  geom_boxplot(outlier.shape = NA) +
+  stat_summary(fun = mean, geom = "point", shape = 20, color = "red", size = 2) +
+  facet_wrap(~ country, labeller = as_labeller(c(arm = "Armenia", az = "Azerbaijan", ge = "Georgia"))) +
+  labs(
+    title = "Figure 4: Percentage of Population in Urban Areas Across Eras by Country (1958–2022)",
+    x = "Era",
+    y = "Population in Urban Areas (%)"
+  ) +
+  theme_bw() +
+  theme(plot.title = element_text(size = 9))
+
+```
+
+The red dot represents the mean of the box plot of the respective era.
+
+This urbanization plot reveals dramatically different Soviet
+modernization trajectories and post-collapse urban strategies across the
+three countries, reflecting their distinct economic structures and
+political priorities.
+
+**Armenia's Urbanization**: Armenia's Soviet urbanization shows the most
+dramatic transformation - from 1929 to 1936, the government began the
+process of industrialization, compelling many living in the rural
+countryside to settle in urban areas. At the time of the republic's
+dissolution, close to 70 percent of its population lived in urban areas.
+For a post Soviet analysis see the below plot.\
+**Azerbaijan's Urbanization:** Azerbaijan maintained relatively stable,
+moderate urbanization levels throughout both periods. Azerbaijan's
+population is approximately 57% urban and 43% rural currently, showing
+continuity with Soviet patterns. This reflects Azerbaijan's oil-based
+economy, which required less dramatic rural-to-urban population shifts
+compared to Armenia's heavy industrialization strategy.
+
+**Georgia's Urbanization**: Georgia shows the most dramatic increase in
+urbanization - jumping from around 50% in the Soviet period to nearly
+60% post-collapse. This might be explained by the large population drop
+that Georgia has faced, especially in rural areas. This time-series plot
+for Armenia provides crucial nuance that corrects and deepens our
+earlier analysis of the country's urbanization patterns.
+
+```{r,fig.width=5, fig.height=3,fig.align = "center",echo = FALSE}
+ggplot(df, aes(x = year, y = urban_population_perc_arm)) +
+  geom_line(color = "steelblue",linewidth = 0.7) +
+  
+  geom_vline(xintercept = 1991, linetype = "dashed", color = "red") +
+  annotate("text", x = 1991, 
+           y = min(df_combined$urban_population_perc, na.rm = TRUE) * 1.05, 
+           label = "USSR collapse", angle = 0, vjust = 0.2, hjust = -0.1, size = 3, colour = "black") +
+
+  geom_vline(xintercept = 1988, linetype = "dashed", color = "red") +
+  annotate("text", x = 1988, 
+           y = min(df_combined$urban_population_perc, na.rm = TRUE) * 1.05, 
+           label = "Spitak Earthquake", angle = 0, vjust = 0.2, hjust = 1.05, size = 3, colour = "black") +
+
+  labs(
+    title = "Figure 5: Percentage of Population in Urban Areas in Armenia (1958–2022)",
+    x = "Year",
+    y = "Population in Urban Areas (%)"
+  ) +
+  
+  theme_bw() + theme(plot.title = element_text(size=9))
+```
+
+*To see a definition of % of Urban Population, see Appendix A.*
+
+The above time-series plot of Armenia's urbanization from 1958 to 2022
+provides more nuance.\
+The percentage of the population residing in urban areas peaked in 1988
+with 68%. After the destructive earthquake, urbanization began to drop
+up to the late 2010s.\
+The drop in urbanization following 1988 was driven by a cascade of
+crises:
+
+-   1988 Spitak Earthquake destroyed 90% of buildings in Spitak, heavily
+    damaged Gyumri and Vanadzor Armenia’s second and third largest
+    cities.
+
+    Killed \~25,000 people and displaced hundreds of thousands.
+
+-   Collapse of the Soviet Union (1991) triggered mass
+    deindustrialization; urban jobs disappeared overnight. Resulted in
+    urban depopulation as survival in rural areas became more viable
+    than in cash-starved cities.
+
+-   First Nagorno-Karabakh War (1992–1994). Militarized much of the
+    economy and society. Induced large-scale displacement of refugees,
+    both ethnic Armenians from Azerbaijan and internally displaced
+    people.
+
+De-urbanization is rare globally. In most countries, urbanization is a
+one-way path. Armenia is an exception due to the overlapping disasters
+of earthquake, war, economic collapse, and emigration.
+
+Beyond health and demographic outcomes, governance quality plays a
+crucial role in development. The following plot explores changes in
+Armenia’s political corruption levels and regime type over time, with
+key events such as the Velvet Revolution marked for reference.
+
+```{r, fig.align = "center", echo = FALSE}
+ggplot(df, aes(year, political_corruption_index_arm)) +
+  geom_vline(xintercept = 1991, linetype = "dashed", color = "red") +
+  annotate(
+    "text", x = 1991, 
+    y = min(df$political_corruption_index_arm, na.rm = TRUE) * 1.05, 
+    label = "USSR Collapse", angle = 0, vjust = 0.2, hjust = 1.1, size = 3, colour = "black"
+  ) +
+  geom_vline(xintercept = 2018, linetype = "dashed", color = "red") +
+  geom_point(aes(color = regime_type_arm)) +
+  annotate(
+    "text", x = 2018, 
+    y = min(df$political_corruption_index_arm, na.rm = TRUE) * 1.05, 
+    label = "Velvet Revolution", angle = 0, vjust = 0.2, hjust = 1.05, size = 3, colour = "black"
+  ) +
+  labs(
+    title = "Figure 6: Political Corruption Index in Armenia (1958–2022)",
+    x = "Year",
+    y = "Political Corruption Index",
+    color = "Regime Type"
+  ) +
+  scale_color_discrete(labels = c(
+    "Closed Autocracy", 
+    "Electoral Autocracy", 
+    "Electoral Democracy"
+  )) +
+  theme_bw() + theme(plot.title = element_text(size=11))
+
+```
+
+*To see a definition of Corruption Index and Regyme Type, see Appendix
+A.*
+
+The above plot shows the corruption and regime dynamics in Armenia
+(1958–2022). At first glance, the relatively low corruption index during
+the Soviet period (1958–1991) might appear paradoxical, given that
+Armenia functioned under a closed autocratic regime. However, this
+observation aligns with broader patterns observed in centralized
+authoritarian systems, where the lack of transparency, limited press
+freedom, and absence of civil society mechanisms result in significant
+underreporting of corruption rather than its actual absence. Informal
+practices such as nepotism, clientelism, and personal networks were
+entrenched in Soviet governance structures, but rarely quantified or
+acknowledged officially (Ledeneva, 2006). With the onset of Perestroika
+and the political liberalization under Mikhail Gorbachev in the late
+1980s, Armenia was nominally classified as an electoral democracy. This
+classification persisted into the early post-independence years
+following the USSR's dissolution in 1991. Nevertheless, by 1995, the
+regime type was reclassified by international indices (e.g., V-Dem,
+Freedom House) as an electoral autocracy, primarily due to repeated
+allegations of electoral manipulation, constrained media, and the
+consolidation of power among political elites. Correspondingly,
+Armenia's political corruption index began to surge, peaking around
+2001, and remaining persistently high—above 0.85—throughout the 2000s
+and 2010s. A significant turning point occurred with the Velvet
+Revolution in 2018. Following this, Armenia's regime classification
+shifted back to electoral democracy, attributed to what international
+observers described as the first genuinely competitive elections in the
+country’s post-Soviet history. In parallel, the corruption index
+underwent a sharp decline—from over 0.8 to approximately 0.3 by
+2022—suggesting tangible reductions in elite corruption, increased
+prosecutorial activity, and growing institutional responsiveness.
+
+A more culturally sensitive indicator is the sex ratio at birth (SRB),
+which may reveal subtle forms of gender bias. In Armenia, this metric
+began to deviate from the biological norm in the 1990s, raising
+questions about the role of policy, tradition, and post-conflict
+militarization.
+
+```{r,fig.width=5, fig.height=4, fig.align = "center",echo = FALSE}
+ggplot(df, aes(x = year, y = sex_ratio_at_birth_arm)) +
+  geom_line(color = "steelblue3", linewidth = 1) +
+  
+
+  geom_hline(yintercept = 105, linetype = "dashed", color = "black",linewidth=0.7) +
+  annotate("text", x = 1965, y = 108,label = "Biological norm (105)", hjust = 0.2, vjust = 0.5, size = 3.5, color = "gray30") +
+
+  geom_vline(xintercept = 1991, linetype = "dashed", color = "red") +
+  annotate("text", x = 1992, y = 108, label = "Karabakh War I", angle = 0, vjust = 20,hjust=1.2, size = 2.5) +
+
+  geom_vline(xintercept = 2016, linetype = "dashed", color = "red") +
+  annotate("text", x = 2016, y = 108, label = "Reforms against \ 
+           sex selective abortion", angle = 0, vjust = 7.5, hjust=1.05,size = 2.5) +
+
+
+  labs(
+    title = "Figure 7: Distortion in Armenia’s Sex Ratio at Birth (1958–2022)",
+    x = "Year",
+    y = "Male births for every 100 female birth"
+  ) +
+  scale_y_continuous(limits = c(90, NA)) +
+  theme_bw() + theme(plot.title = element_text(size=11))
+```
+
+The plot above displays Armenia’s sex ratio at birth (SRB)—defined as
+the number of male births per 100 female births—over time. While the
+biologically normative range for SRB is approximately 105 males per 100
+females, Armenia exhibits a systematic deviation from this natural
+baseline, particularly after the early 1990s. The sharp rise in SRB
+coincides with the aftermath of the First Nagorno-Karabakh War
+(1988–1994) and Armenia’s transition to independence in 1991. This
+distortion is attributed to sex-selective abortion, a phenomenon
+observed in several post-Soviet and East Asian contexts. In Armenia’s
+case, the drivers are multifaceted: Sociocultural pressures, including
+strong son preference, rooted in patriarchal inheritance norms and
+expectations of sons to provide for parents in old age. Militarized
+nationalism, intensified by ongoing conflict with Azerbaijan, which
+ascribes male offspring as future soldiers and protectors of the
+homeland. The availability of prenatal sex-detection technologies,
+coupled with limited legal or regulatory frameworks during the early
+post-Soviet years, enabled the widespread use of sex-selective
+termination.
+
+Beginning in 2016, the Armenian government implemented a legal ban
+specifically targeting sex-selective abortions, accompanied by public
+awareness campaigns and health sector guidelines aimed at addressing
+gender-biased reproductive choices. The data reflect a gradual
+normalization of the SRB in the years following the intervention.
+Nevertheless, the ratio remains elevated relative to the global norm,
+indicating persistent cultural and structural biases.
+
+The continued imbalance carries long-term demographic and social risks,
+including gender imbalances in the adult population, skewed marriage
+markets, and potential increases in gender-based violence. Moreover, the
+systematic elimination of female fetuses, while not immediately apparent
+in demographic totals, may gradually suppress Armenia’s population
+growth in the coming decades, as the future base of mothers shrinks,
+compounding the country’s existing challenges of low fertility and
+emigration.
+
+```{r, fig.width=6, fig.height=3,fig.align = "center", echo = FALSE}
+df <- df %>%
+  mutate(
+    birth_rate_norm = (birth_rate_arm - min(birth_rate_arm, na.rm = TRUE)) /
+                      (max(birth_rate_arm, na.rm = TRUE) - min(birth_rate_arm, na.rm = TRUE)),
+    sex_ratio_norm = (sex_ratio_at_birth_arm - min(sex_ratio_at_birth_arm, na.rm = TRUE)) /
+                     (max(sex_ratio_at_birth_arm, na.rm = TRUE) - min(sex_ratio_at_birth_arm, na.rm = TRUE))
+  )
+
+ggplot(df, aes(x = year)) +
+  geom_line(aes(y = birth_rate_norm, color = "Birth Rate (0-1)"),linewidth=0.9) +
+  geom_line(aes(y = sex_ratio_norm, color = "Male births
+for every 100 female (0-1)"),linewidth=0.9) +
+  labs(
+    title = "Figure 8: Normalized Birth Rate vs. Sex Ratio at Birth (0–1 scale)",
+    x = "Year",
+    y = NULL,
+    color = ""
+  ) +
+  theme_bw()+ theme(plot.title = element_text(size=9))
+
+```
+
+This plot presents the normalized trends of Armenia’s birth rate and sex
+ratio at birth (SRB) from 1958 to 2022. A clear inverse relationship
+emerges after the country’s independence: as birth rates declined
+steadily, especially after the collapse of the USSR in 1991, the sex
+ratio at birth began to deviate from the natural norm. This distortion
+sharply increases in the mid-1990s and peaks around the early 2000s,
+corresponding with widespread use of sex-selective abortions.
+
+The plot proves that the abnormal rise of male births does not coincide
+with a rise of birth rates, indicating an artificial factor's existence
+as the cause of the problem.
+
+## **Conclusion**
+
+This report reveals Armenia’s demographic and governance trends to be
+more resilient than commonly assumed. Despite experiencing one of the
+longest-running blockades in modern history, two wars, a devastating
+earthquake, and high emigration, Armenia’s life expectancy trends mirror
+or surpass that of regional neighbors with ostensibly better
+geopolitical positioning. The country’s inherited Soviet-era
+infrastructure, cultural prioritization of education and healthcare, and
+substantial diaspora support appear to have played key roles in
+mitigating full collapse. However, challenges remain: declining birth
+rates, persistent gender imbalances, and still high corruption rates
+suggest ongoing structural vulnerabilities.
+
+## **References**
+
+-   Cornia, G. A., & Paniccià, R. (Eds.). (2000). *The mortality crisis
+    in transitional economies*. Oxford University Press.
+
+<!-- -->
+
+-   Shkolnikov, V., Meslé, F., & Vallin, J. (1998). *Health crisis in
+    Russia: recent trends in life expectancy and causes of death from
+    1970 to 1993*. Population Studies.
+
+<!-- -->
+
+-   Ledeneva, A. V. (2006). *How Russia really works: The informal
+    practices that shaped post-Soviet politics and business*. Cornell
+    University Press.
+
+<!-- -->
+
+-   Guilmoto, C. Z. (2009). *The sex ratio transition in Asia*.
+    Population and Development Review.
+
+<!-- -->
+
+-   UNFPA Armenia (2013). *Sex Imbalances at Birth in Armenia:
+    Demographic Evidence and Analysis*.
+
+<!-- -->
+
+-   Cambridge (2024). *Isolating a culture of son preference among
+    Armenian, Georgian and Azeri Parents in Soviet-era Russia*
+
+## **Appendix**
+
+**Appendix A** — Indicators and Definitions.
+
+*Life Expectancy*: Average number of years a person is expected to live.
+
+*Urbanization Rate*: % of population in areas defined as urban.
+
+*Corruption index:* The Corruption Perceptions Index (CPI) is an index
+that scores and ranks countries by their perceived levels of public
+sector corruption, as assessed by experts and business executives. The
+CPI generally defines corruption as an "abuse of entrusted power for
+private gain".
+
+*Regime Types:*
+
+-   In *closed autocracies*, citizens do not have the right to either
+    choose the chief executive of the government or the legislature
+    through multi-party elections.
+-   In *electoral autocracies*, citizens have the right to choose the
+    chief executive and the legislature through multi-party elections;
+    but they lack some freedoms, such as the freedoms of association or
+    expression, that make the elections meaningful, free, and fair.
+-   In *electoral democracies*, citizens have the right to participate
+    in meaningful, free and fair, and multi-party elections.
+-   In *liberal democracies*, citizens have further individual and
+    minority rights, are equal before the law, and the actions of the
+    executive are constrained by the legislative and the courts.
+
+**Appendix B** — Major Events with Estimated Death Tolls and/or
+Explanaitions
+
+| Event | Year(s) | Estimated Deaths | Notes |
+|----|----|----|----|
+| Spitak Earthquake | 1988 | \~25,000 | Armenia’s deadliest natural disaster. Caused major death and infrastructural damage. |
+| First Karabakh War | 1992-1994 | \~31,000. \~6000 from the Armenian side, \~25000 from the Azerbaijani side. | Ended in Armenian side's victory and control over Nagorno Karabakh. Had major demographic impact on Azerbaijan. |
+| Georgian Civil War | 1991-1993 | \~20,000 | Resulted in near state collapse. Major impact on Georgian demographics. |
+| Russo-Georgian War | 2008 | \~850 | Short but politically significant. |
+| Karabakh War II | 2020 | \~7,000\* | Highly disruptive despite short duration. |
+
+^\* Important to note Azerbaijan's official death toll is being heavily scrutinized and is considered as untrustworthy^
